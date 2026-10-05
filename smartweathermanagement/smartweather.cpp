@@ -1,0 +1,364 @@
+#include "smartweather.h"
+
+#include <QComboBox>
+#include <QDate>
+#include <QDateEdit>
+#include <QFile>
+#include <QFileDialog>
+#include <QFormLayout>
+#include <QGroupBox>
+#include <QHBoxLayout>
+#include <QHeaderView>
+#include <QLabel>
+#include <QLineEdit>
+#include <QMessageBox>
+#include <QPdfWriter>
+#include <QPushButton>
+#include <QRegularExpression>
+#include <QSqlDatabase>
+#include <QSqlError>
+#include <QSqlQuery>
+#include <QSqlQueryModel>
+#include <QSqlRecord>
+#include <QTableView>
+#include <QTextDocument>
+#include <QTextStream>
+#include <QVBoxLayout>
+
+enum Col { C_ID, C_NOM, C_PRENOM, C_EMAIL, C_POSTE, C_STRUCT, C_GOUV, C_DATE, C_STATUT, C_HORAIRE };
+
+smartweather::smartweather(QWidget *parent) : QWidget(parent)
+{
+    setWindowTitle("Smart Weather Management - Gestion des Employés");
+    resize(1150, 700);
+    if (!initDb()) return;
+    buildUi();
+    charger();
+}
+
+bool smartweather::initDb()
+{
+    QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE");
+    db.setDatabaseName("smartweather.db");
+    if (!db.open()) {
+        QMessageBox::critical(this, "Base de données", db.lastError().text());
+        return false;
+    }
+    QSqlQuery q;
+    return q.exec(
+        "CREATE TABLE IF NOT EXISTS employe ("
+        "id_employe INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "nom TEXT NOT NULL, prenom TEXT NOT NULL, email TEXT NOT NULL,"
+        "poste TEXT, structure TEXT, gouvernorat TEXT,"
+        "date_recrutement TEXT, statut TEXT, type_horaire TEXT)");
+}
+
+void smartweather::buildUi()
+{
+
+    m_nom = new QLineEdit;
+    m_prenom = new QLineEdit;
+    m_email = new QLineEdit;
+    m_gouvernorat = new QLineEdit;
+    m_poste = new QComboBox;
+    m_poste->addItems({"Ingénieur prévisionniste", "Agent d'observation",
+                       "Technicien de maintenance", "Agent de service", "Administratif"});
+    m_structure = new QComboBox;
+    m_structure->addItems({"Siège", "Régionale"});
+    m_statut = new QComboBox;
+    m_statut->addItems({"Actif", "En congé", "Stagiaire"});
+    m_horaire = new QComboBox;
+    m_horaire->addItems({"Jour", "Garde 24h"});
+    m_date = new QDateEdit(QDate::currentDate());
+    m_date->setCalendarPopup(true);
+    m_date->setDisplayFormat("dd/MM/yyyy");
+
+    auto *form = new QFormLayout;
+    form->addRow("Nom :", m_nom);
+    form->addRow("Prénom :", m_prenom);
+    form->addRow("Email :", m_email);
+    form->addRow("Poste :", m_poste);
+    form->addRow("Structure :", m_structure);
+    form->addRow("Gouvernorat :", m_gouvernorat);
+    form->addRow("Date de recrutement :", m_date);
+    form->addRow("Statut :", m_statut);
+    form->addRow("Type d'horaire :", m_horaire);
+
+    auto *btnAjouter = new QPushButton("Ajouter");
+    auto *btnModifier = new QPushButton("Modifier");
+    auto *btnSupprimer = new QPushButton("Supprimer");
+    auto *btnVider = new QPushButton("Nouveau");
+    btnSupprimer->setObjectName("danger");
+    auto *crudLayout = new QHBoxLayout;
+    crudLayout->addWidget(btnAjouter);
+    crudLayout->addWidget(btnModifier);
+    crudLayout->addWidget(btnSupprimer);
+    crudLayout->addWidget(btnVider);
+
+    auto *formBox = new QGroupBox("Fiche employé");
+    auto *formLayout = new QVBoxLayout(formBox);
+    formLayout->addLayout(form);
+    formLayout->addLayout(crudLayout);
+    formLayout->addStretch();
+
+    m_critere = new QComboBox;
+    m_critere->addItems({"Nom", "Poste", "Structure", "Gouvernorat"});
+    m_recherche = new QLineEdit;
+    m_recherche->setPlaceholderText("Rechercher...");
+    m_tri = new QComboBox;
+    m_tri->addItems({"Nom", "Poste", "Date de recrutement", "Structure"});
+
+    auto *btnCsv = new QPushButton("Exporter CSV (Excel)");
+    auto *btnPdf = new QPushButton("Exporter PDF");
+    auto *btnStats = new QPushButton("Statistiques");
+
+    auto *toolbar = new QHBoxLayout;
+    toolbar->addWidget(new QLabel("Rechercher par :"));
+    toolbar->addWidget(m_critere);
+    toolbar->addWidget(m_recherche, 1);
+    toolbar->addWidget(new QLabel("Trier par :"));
+    toolbar->addWidget(m_tri);
+    toolbar->addWidget(btnCsv);
+    toolbar->addWidget(btnPdf);
+    toolbar->addWidget(btnStats);
+
+    m_model = new QSqlQueryModel(this);
+    m_table = new QTableView;
+    m_table->setModel(m_model);
+    m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_table->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_table->setAlternatingRowColors(true);
+    m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    m_table->verticalHeader()->hide();
+
+    auto *right = new QVBoxLayout;
+    right->addLayout(toolbar);
+    right->addWidget(m_table);
+
+    auto *main = new QHBoxLayout(this);
+    main->addWidget(formBox, 0);
+    main->addLayout(right, 1);
+
+    setStyleSheet(
+        "QWidget { background:#F5F7FA; color:#37474F; font-family:Arial; font-size:12pt; }"
+        "QGroupBox { font-weight:bold; border:1px solid #B0BEC5; border-radius:6px;"
+        "           margin-top:12px; padding:10px; }"
+        "QGroupBox::title { subcontrol-origin:margin; left:10px; color:#1E88E5; }"
+        "QPushButton { background:#1E88E5; color:white; border:none;"
+        "             border-radius:4px; padding:6px 12px; }"
+        "QPushButton:hover { background:#1565C0; }"
+        "QPushButton#danger { background:#C62828; }"
+        "QLineEdit, QComboBox, QDateEdit { background:white; border:1px solid #B0BEC5;"
+        "                                  border-radius:4px; padding:4px; }"
+        "QHeaderView::section { background:#1E88E5; color:white; padding:4px; border:none; }"
+        "QTableView { background:white; alternate-background-color:#F5F7FA; }");
+
+    connect(btnAjouter, &QPushButton::clicked, this, &smartweather::ajouter);
+    connect(btnModifier, &QPushButton::clicked, this, &smartweather::modifier);
+    connect(btnSupprimer, &QPushButton::clicked, this, &smartweather::supprimer);
+    connect(btnVider, &QPushButton::clicked, this, &smartweather::viderFormulaire);
+    connect(btnCsv, &QPushButton::clicked, this, &smartweather::exporterCsv);
+    connect(btnPdf, &QPushButton::clicked, this, &smartweather::exporterPdf);
+    connect(btnStats, &QPushButton::clicked, this, &smartweather::afficherStats);
+    connect(m_recherche, &QLineEdit::textChanged, this, &smartweather::charger);
+    connect(m_critere, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &smartweather::charger);
+    connect(m_tri, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &smartweather::charger);
+    connect(m_table, &QTableView::clicked, this, &smartweather::remplirFormulaire);
+}
+
+void smartweather::erreur(const QString &msg)
+{
+    QMessageBox::warning(this, "Erreur", msg);
+}
+
+bool smartweather::formulaireValide()
+{
+    if (m_nom->text().trimmed().isEmpty() || m_prenom->text().trimmed().isEmpty()) {
+        erreur("Le nom et le prénom sont obligatoires.");
+        return false;
+    }
+    static const QRegularExpression re(R"(^[\w.+-]+@[\w-]+\.[\w.-]+$)");
+    if (!re.match(m_email->text().trimmed()).hasMatch()) {
+        erreur("Adresse email invalide.");
+        return false;
+    }
+    if (m_gouvernorat->text().trimmed().isEmpty()) {
+        erreur("Le gouvernorat est obligatoire.");
+        return false;
+    }
+    return true;
+}
+
+void smartweather::ajouter()
+{
+    if (!formulaireValide()) return;
+    QSqlQuery q;
+    q.prepare("INSERT INTO employe (nom,prenom,email,poste,structure,gouvernorat,"
+              "date_recrutement,statut,type_horaire) VALUES (?,?,?,?,?,?,?,?,?)");
+    q.addBindValue(m_nom->text().trimmed());
+    q.addBindValue(m_prenom->text().trimmed());
+    q.addBindValue(m_email->text().trimmed());
+    q.addBindValue(m_poste->currentText());
+    q.addBindValue(m_structure->currentText());
+    q.addBindValue(m_gouvernorat->text().trimmed());
+    q.addBindValue(m_date->date().toString("yyyy-MM-dd"));
+    q.addBindValue(m_statut->currentText());
+    q.addBindValue(m_horaire->currentText());
+    if (!q.exec()) { erreur(q.lastError().text()); return; }
+    viderFormulaire();
+    charger();
+}
+
+void smartweather::modifier()
+{
+    if (m_idCourant < 0) { erreur("Sélectionnez un employé dans le tableau."); return; }
+    if (!formulaireValide()) return;
+    QSqlQuery q;
+    q.prepare("UPDATE employe SET nom=?,prenom=?,email=?,poste=?,structure=?,gouvernorat=?,"
+              "date_recrutement=?,statut=?,type_horaire=? WHERE id_employe=?");
+    q.addBindValue(m_nom->text().trimmed());
+    q.addBindValue(m_prenom->text().trimmed());
+    q.addBindValue(m_email->text().trimmed());
+    q.addBindValue(m_poste->currentText());
+    q.addBindValue(m_structure->currentText());
+    q.addBindValue(m_gouvernorat->text().trimmed());
+    q.addBindValue(m_date->date().toString("yyyy-MM-dd"));
+    q.addBindValue(m_statut->currentText());
+    q.addBindValue(m_horaire->currentText());
+    q.addBindValue(m_idCourant);
+    if (!q.exec()) { erreur(q.lastError().text()); return; }
+    charger();
+}
+
+void smartweather::supprimer()
+{
+    if (m_idCourant < 0) { erreur("Sélectionnez un employé dans le tableau."); return; }
+    if (QMessageBox::question(this, "Confirmation",
+                              "Supprimer définitivement cet employé ?") != QMessageBox::Yes) return;
+    QSqlQuery q;
+    q.prepare("DELETE FROM employe WHERE id_employe=?");
+    q.addBindValue(m_idCourant);
+    if (!q.exec()) { erreur(q.lastError().text()); return; }
+    viderFormulaire();
+    charger();
+}
+
+void smartweather::charger()
+{
+
+    static const char *colRecherche[] = {"nom", "poste", "structure", "gouvernorat"};
+    static const char *colTri[] = {"nom", "poste", "date_recrutement", "structure"};
+
+    QString sql = "SELECT id_employe, nom, prenom, email, poste, structure, gouvernorat, "
+                  "date_recrutement, statut, type_horaire FROM employe";
+    const QString texte = m_recherche->text().trimmed();
+    if (!texte.isEmpty())
+        sql += QString(" WHERE %1 LIKE ?").arg(colRecherche[m_critere->currentIndex()]);
+    sql += QString(" ORDER BY %1").arg(colTri[m_tri->currentIndex()]);
+
+    QSqlQuery q;
+    q.prepare(sql);
+    if (!texte.isEmpty()) q.addBindValue("%" + texte + "%");
+    q.exec();
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    m_model->setQuery(std::move(q));
+#else
+    m_model->setQuery(q);
+#endif
+
+    const QStringList titres = {"ID", "Nom", "Prénom", "Email", "Poste", "Structure",
+                                "Gouvernorat", "Recrutement", "Statut", "Horaire"};
+    for (int i = 0; i < titres.size(); ++i)
+        m_model->setHeaderData(i, Qt::Horizontal, titres[i]);
+}
+
+void smartweather::remplirFormulaire(const QModelIndex &index)
+{
+    const QSqlRecord r = m_model->record(index.row());
+    m_idCourant = r.value(C_ID).toInt();
+    m_nom->setText(r.value(C_NOM).toString());
+    m_prenom->setText(r.value(C_PRENOM).toString());
+    m_email->setText(r.value(C_EMAIL).toString());
+    m_poste->setCurrentText(r.value(C_POSTE).toString());
+    m_structure->setCurrentText(r.value(C_STRUCT).toString());
+    m_gouvernorat->setText(r.value(C_GOUV).toString());
+    m_date->setDate(QDate::fromString(r.value(C_DATE).toString(), "yyyy-MM-dd"));
+    m_statut->setCurrentText(r.value(C_STATUT).toString());
+    m_horaire->setCurrentText(r.value(C_HORAIRE).toString());
+}
+
+void smartweather::viderFormulaire()
+{
+    m_idCourant = -1;
+    m_nom->clear(); m_prenom->clear(); m_email->clear(); m_gouvernorat->clear();
+    m_poste->setCurrentIndex(0); m_structure->setCurrentIndex(0);
+    m_statut->setCurrentIndex(0); m_horaire->setCurrentIndex(0);
+    m_date->setDate(QDate::currentDate());
+    m_table->clearSelection();
+}
+
+void smartweather::exporterCsv()
+{
+    const QString path = QFileDialog::getSaveFileName(this, "Exporter", "employes.csv", "CSV (*.csv)");
+    if (path.isEmpty()) return;
+    QFile f(path);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) { erreur("Impossible d'écrire le fichier."); return; }
+    QTextStream out(&f);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    out.setEncoding(QStringConverter::Utf8);
+#else
+    out.setCodec("UTF-8");
+#endif
+    out.setGenerateByteOrderMark(true);
+    const int cols = m_model->columnCount();
+    for (int c = 0; c < cols; ++c)
+        out << m_model->headerData(c, Qt::Horizontal).toString() << (c + 1 < cols ? ";" : "\n");
+    for (int r = 0; r < m_model->rowCount(); ++r)
+        for (int c = 0; c < cols; ++c)
+            out << m_model->data(m_model->index(r, c)).toString() << (c + 1 < cols ? ";" : "\n");
+}
+
+void smartweather::exporterPdf()
+{
+    const QString path = QFileDialog::getSaveFileName(this, "Exporter", "employes.pdf", "PDF (*.pdf)");
+    if (path.isEmpty()) return;
+
+    QString html = "<h2 style='color:#1E88E5'>Liste des employés - INM</h2>"
+                   "<table border='1' cellspacing='0' cellpadding='4' width='100%'><tr>";
+    const int cols = m_model->columnCount();
+    for (int c = 0; c < cols; ++c)
+        html += "<th bgcolor='#1E88E5'><font color='white'>" +
+                m_model->headerData(c, Qt::Horizontal).toString() + "</font></th>";
+    html += "</tr>";
+    for (int r = 0; r < m_model->rowCount(); ++r) {
+        html += "<tr>";
+        for (int c = 0; c < cols; ++c)
+            html += "<td>" + m_model->data(m_model->index(r, c)).toString().toHtmlEscaped() + "</td>";
+        html += "</tr>";
+    }
+    html += "</table>";
+
+    QPdfWriter writer(path);
+    writer.setPageSize(QPageSize(QPageSize::A4));
+    writer.setPageOrientation(QPageLayout::Landscape);
+    QTextDocument doc;
+    doc.setHtml(html);
+    doc.print(&writer);
+}
+
+void smartweather::afficherStats()
+{
+    auto bloc = [](const QString &titre, const QString &col) {
+        QString s = "<b>" + titre + "</b><br>";
+        QSqlQuery q("SELECT " + col + ", COUNT(*) FROM employe GROUP BY " + col);
+        while (q.next())
+            s += q.value(0).toString() + " : " + q.value(1).toString() + "<br>";
+        return s + "<br>";
+    };
+    QMessageBox::information(this, "Statistiques",
+                             bloc("Par poste", "poste") + bloc("Par structure", "structure") +
+                                 bloc("Par gouvernorat", "gouvernorat"));
+}

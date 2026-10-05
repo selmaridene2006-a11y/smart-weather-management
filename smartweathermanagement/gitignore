@@ -1,0 +1,8 @@
+build*/
+*.pro.user*
+*.o
+*.obj
+debug/
+release/
+Makefile*
+*.db
