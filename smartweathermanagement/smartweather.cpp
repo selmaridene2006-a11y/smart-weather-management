@@ -1,11 +1,14 @@
 #include "smartweather.h"
 
 #include <QComboBox>
+#include <QCryptographicHash>
 #include <QDate>
 #include <QDateEdit>
 #include <QFile>
 #include <QFileDialog>
 #include <QFormLayout>
+#include <QFrame>
+#include <QGridLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -20,20 +23,36 @@
 #include <QSqlQuery>
 #include <QSqlQueryModel>
 #include <QSqlRecord>
+#include <QStackedWidget>
 #include <QTableView>
 #include <QTextDocument>
 #include <QTextStream>
+#include <QUuid>
 #include <QVBoxLayout>
 
 enum Col { C_ID, C_NOM, C_PRENOM, C_EMAIL, C_POSTE, C_STRUCT, C_GOUV, C_DATE, C_STATUT, C_HORAIRE };
 
+enum Page { PAGE_LOGIN = 0, PAGE_ACCUEIL = 1, PAGE_EMPLOYES = 2 };
+
+static const QStringList ROLES_EMPLOYES = {"Responsable RH", "Chef de division", "Responsable régional"};
+
 smartweather::smartweather(QWidget *parent) : QWidget(parent)
 {
-    setWindowTitle("Smart Weather Management - Gestion des Employés");
+    setWindowTitle("Smart Weather Management");
     resize(1150, 700);
     if (!initDb()) return;
-    buildUi();
-    charger();
+
+    m_stack = new QStackedWidget;
+    m_stack->addWidget(buildLoginPage());
+    m_stack->addWidget(buildAccueilPage());
+    m_stack->addWidget(buildEmployesPage());
+
+    auto *lay = new QVBoxLayout(this);
+    lay->setContentsMargins(0, 0, 0, 0);
+    lay->addWidget(m_stack);
+
+    appliquerStyle();
+    m_stack->setCurrentIndex(PAGE_LOGIN);
 }
 
 bool smartweather::initDb()
@@ -45,16 +64,212 @@ bool smartweather::initDb()
         return false;
     }
     QSqlQuery q;
-    return q.exec(
+    bool ok = q.exec(
         "CREATE TABLE IF NOT EXISTS employe ("
         "id_employe INTEGER PRIMARY KEY AUTOINCREMENT,"
         "nom TEXT NOT NULL, prenom TEXT NOT NULL, email TEXT NOT NULL,"
         "poste TEXT, structure TEXT, gouvernorat TEXT,"
         "date_recrutement TEXT, statut TEXT, type_horaire TEXT)");
+    ok = ok && q.exec(
+             "CREATE TABLE IF NOT EXISTS utilisateur ("
+             "id_utilisateur INTEGER PRIMARY KEY AUTOINCREMENT,"
+             "login TEXT UNIQUE NOT NULL, mot_de_passe TEXT NOT NULL,"
+             "sel TEXT NOT NULL, role TEXT NOT NULL)");
+    if (ok) initUtilisateurs();
+    return ok;
 }
 
-void smartweather::buildUi()
+QString smartweather::hasher(const QString &motDePasse, const QString &sel)
 {
+    const QByteArray h = QCryptographicHash::hash((sel + motDePasse).toUtf8(),
+                                                  QCryptographicHash::Sha256);
+    return QString::fromLatin1(h.toHex());
+}
+
+void smartweather::initUtilisateurs()
+{
+    QSqlQuery c("SELECT COUNT(*) FROM utilisateur");
+    if (c.next() && c.value(0).toInt() > 0) return;
+
+    const struct { const char *login, *mdp, *role; } comptes[] = {
+                    {"admin",     "admin123", "Responsable RH"},
+                    {"prevision", "prev123",  "Prévisionniste"},
+                    };
+    for (const auto &u : comptes) {
+        const QString sel = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        QSqlQuery q;
+        q.prepare("INSERT INTO utilisateur (login, mot_de_passe, sel, role) VALUES (?,?,?,?)");
+        q.addBindValue(QString::fromUtf8(u.login));
+        q.addBindValue(hasher(QString::fromUtf8(u.mdp), sel));
+        q.addBindValue(sel);
+        q.addBindValue(QString::fromUtf8(u.role));
+        q.exec();
+    }
+}
+
+QWidget *smartweather::buildLoginPage()
+{
+    auto *page = new QWidget;
+
+    auto *logo = new QLabel("☁");
+    logo->setAlignment(Qt::AlignCenter);
+    logo->setStyleSheet("font-size:48pt; color:#1E88E5;");
+    auto *titre = new QLabel("Smart Weather Management");
+    titre->setObjectName("titre");
+    titre->setAlignment(Qt::AlignCenter);
+    auto *sous = new QLabel("Institut National de la Météorologie");
+    sous->setAlignment(Qt::AlignCenter);
+
+    m_loginUser = new QLineEdit;
+    m_loginUser->setPlaceholderText("Identifiant");
+    m_loginPass = new QLineEdit;
+    m_loginPass->setPlaceholderText("Mot de passe");
+    m_loginPass->setEchoMode(QLineEdit::Password);
+    m_loginErreur = new QLabel;
+    m_loginErreur->setObjectName("erreur");
+    m_loginErreur->setAlignment(Qt::AlignCenter);
+    auto *btn = new QPushButton("Se connecter");
+
+    auto *card = new QFrame;
+    card->setObjectName("card");
+    card->setFixedWidth(400);
+    auto *cl = new QVBoxLayout(card);
+    cl->setContentsMargins(30, 25, 30, 30);
+    cl->setSpacing(12);
+    cl->addWidget(logo);
+    cl->addWidget(titre);
+    cl->addWidget(sous);
+    cl->addSpacing(10);
+    cl->addWidget(m_loginUser);
+    cl->addWidget(m_loginPass);
+    cl->addWidget(m_loginErreur);
+    cl->addWidget(btn);
+
+    auto *h = new QHBoxLayout;
+    h->addStretch();
+    h->addWidget(card);
+    h->addStretch();
+    auto *v = new QVBoxLayout(page);
+    v->addStretch();
+    v->addLayout(h);
+    v->addStretch();
+
+    connect(btn, &QPushButton::clicked, this, &smartweather::seConnecter);
+    connect(m_loginPass, &QLineEdit::returnPressed, this, &smartweather::seConnecter);
+    connect(m_loginUser, &QLineEdit::returnPressed, m_loginPass, QOverload<>::of(&QWidget::setFocus));
+    return page;
+}
+
+void smartweather::seConnecter()
+{
+    const QString user = m_loginUser->text().trimmed();
+    const QString mdp = m_loginPass->text();
+
+    QSqlQuery q;
+    q.prepare("SELECT mot_de_passe, sel, role FROM utilisateur WHERE login=?");
+    q.addBindValue(user);
+    if (!q.exec() || !q.next() || hasher(mdp, q.value(1).toString()) != q.value(0).toString()) {
+        m_loginErreur->setText("Identifiant ou mot de passe incorrect.");
+        m_loginPass->clear();
+        return;
+    }
+
+    m_user = user;
+    m_role = q.value(2).toString();
+    m_loginErreur->clear();
+    m_loginUser->clear();
+    m_loginPass->clear();
+
+    m_bienvenue->setText(QString("Bienvenue, %1  •  %2").arg(m_user, m_role));
+    const bool autorise = ROLES_EMPLOYES.contains(m_role);
+    m_btnEmployes->setEnabled(autorise);
+    m_btnEmployes->setToolTip(autorise ? QString() : "Accès réservé aux responsables RH, chefs de division et responsables régionaux.");
+
+    m_stack->setCurrentIndex(PAGE_ACCUEIL);
+}
+
+void smartweather::deconnecter()
+{
+    m_user.clear();
+    m_role.clear();
+    m_stack->setCurrentIndex(PAGE_LOGIN);
+    m_loginUser->setFocus();
+}
+
+QWidget *smartweather::buildAccueilPage()
+{
+    auto *page = new QWidget;
+
+    auto *barre = new QFrame;
+    barre->setObjectName("barre");
+    auto *bl = new QHBoxLayout(barre);
+    auto *appName = new QLabel("☁  Smart Weather Management");
+    appName->setStyleSheet("font-size:14pt; font-weight:bold;");
+    m_bienvenue = new QLabel;
+    auto *btnDeco = new QPushButton("Déconnexion");
+    btnDeco->setObjectName("danger");
+    bl->addWidget(appName);
+    bl->addStretch();
+    bl->addWidget(m_bienvenue);
+    bl->addWidget(btnDeco);
+
+    auto *titre = new QLabel("Tableau de bord");
+    titre->setObjectName("titre");
+    auto *sous = new QLabel("Choisissez un module pour commencer.");
+
+    m_btnEmployes = new QPushButton("Gestion des\nEmployés");
+    auto *btnStations = new QPushButton("Gestion des\nStations");
+    auto *btnReleves = new QPushButton("Relevés Météo\n& Attestations");
+    auto *btnAlertes = new QPushButton("Alertes\n& Prédictions");
+    for (auto *b : {m_btnEmployes, btnStations, btnReleves, btnAlertes})
+        b->setObjectName("module");
+
+    auto *grid = new QGridLayout;
+    grid->setSpacing(20);
+    grid->addWidget(m_btnEmployes, 0, 0);
+    grid->addWidget(btnStations, 0, 1);
+    grid->addWidget(btnReleves, 1, 0);
+    grid->addWidget(btnAlertes, 1, 1);
+
+    auto *corps = new QVBoxLayout;
+    corps->setContentsMargins(60, 30, 60, 40);
+    corps->addWidget(titre);
+    corps->addWidget(sous);
+    corps->addSpacing(15);
+    corps->addLayout(grid, 1);
+
+    auto *v = new QVBoxLayout(page);
+    v->setContentsMargins(0, 0, 0, 0);
+    v->addWidget(barre);
+    v->addLayout(corps, 1);
+
+    connect(btnDeco, &QPushButton::clicked, this, &smartweather::deconnecter);
+    connect(m_btnEmployes, &QPushButton::clicked, this, &smartweather::ouvrirEmployes);
+    connect(btnStations, &QPushButton::clicked, this, &smartweather::moduleIndisponible);
+    connect(btnReleves, &QPushButton::clicked, this, &smartweather::moduleIndisponible);
+    connect(btnAlertes, &QPushButton::clicked, this, &smartweather::moduleIndisponible);
+    return page;
+}
+
+void smartweather::moduleIndisponible()
+{
+    QMessageBox::information(this, "Module", "Ce module est en cours de développement par l'équipe.");
+}
+
+void smartweather::ouvrirEmployes()
+{
+    charger();
+    m_stack->setCurrentIndex(PAGE_EMPLOYES);
+}
+
+void smartweather::retourAccueil()
+{
+    m_stack->setCurrentIndex(PAGE_ACCUEIL);
+}
+
+QWidget *smartweather::buildEmployesPage()
+{
+    auto *page = new QWidget;
 
     m_nom = new QLineEdit;
     m_prenom = new QLineEdit;
@@ -101,10 +316,12 @@ void smartweather::buildUi()
     formLayout->addLayout(crudLayout);
     formLayout->addStretch();
 
+    auto *btnAccueil = new QPushButton("← Accueil");
     m_critere = new QComboBox;
     m_critere->addItems({"Nom", "Poste", "Structure", "Gouvernorat"});
     m_recherche = new QLineEdit;
     m_recherche->setPlaceholderText("Rechercher...");
+    m_recherche->setMinimumWidth(180);
     m_tri = new QComboBox;
     m_tri->addItems({"Nom", "Poste", "Date de recrutement", "Structure"});
 
@@ -113,6 +330,7 @@ void smartweather::buildUi()
     auto *btnStats = new QPushButton("Statistiques");
 
     auto *toolbar = new QHBoxLayout;
+    toolbar->addWidget(btnAccueil);
     toolbar->addWidget(new QLabel("Rechercher par :"));
     toolbar->addWidget(m_critere);
     toolbar->addWidget(m_recherche, 1);
@@ -136,24 +354,11 @@ void smartweather::buildUi()
     right->addLayout(toolbar);
     right->addWidget(m_table);
 
-    auto *main = new QHBoxLayout(this);
+    auto *main = new QHBoxLayout(page);
     main->addWidget(formBox, 0);
     main->addLayout(right, 1);
 
-    setStyleSheet(
-        "QWidget { background:#F5F7FA; color:#37474F; font-family:Arial; font-size:12pt; }"
-        "QGroupBox { font-weight:bold; border:1px solid #B0BEC5; border-radius:6px;"
-        "           margin-top:12px; padding:10px; }"
-        "QGroupBox::title { subcontrol-origin:margin; left:10px; color:#1E88E5; }"
-        "QPushButton { background:#1E88E5; color:white; border:none;"
-        "             border-radius:4px; padding:6px 12px; }"
-        "QPushButton:hover { background:#1565C0; }"
-        "QPushButton#danger { background:#C62828; }"
-        "QLineEdit, QComboBox, QDateEdit { background:white; border:1px solid #B0BEC5;"
-        "                                  border-radius:4px; padding:4px; }"
-        "QHeaderView::section { background:#1E88E5; color:white; padding:4px; border:none; }"
-        "QTableView { background:white; alternate-background-color:#F5F7FA; }");
-
+    connect(btnAccueil, &QPushButton::clicked, this, &smartweather::retourAccueil);
     connect(btnAjouter, &QPushButton::clicked, this, &smartweather::ajouter);
     connect(btnModifier, &QPushButton::clicked, this, &smartweather::modifier);
     connect(btnSupprimer, &QPushButton::clicked, this, &smartweather::supprimer);
@@ -167,6 +372,32 @@ void smartweather::buildUi()
     connect(m_tri, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &smartweather::charger);
     connect(m_table, &QTableView::clicked, this, &smartweather::remplirFormulaire);
+    return page;
+}
+
+void smartweather::appliquerStyle()
+{
+    setStyleSheet(
+        "QWidget { background:#F5F7FA; color:#37474F; font-family:Arial; font-size:12pt; }"
+        "QLabel { background:transparent; }"
+        "QLabel#titre { color:#1E88E5; font-size:22pt; font-weight:bold; }"
+        "QLabel#erreur { color:#C62828; }"
+        "QFrame#card { background:white; border:1px solid #B0BEC5; border-radius:10px; }"
+        "QFrame#barre { background:#37474F; }"
+        "QFrame#barre QLabel { color:white; }"
+        "QGroupBox { font-weight:bold; border:1px solid #B0BEC5; border-radius:6px;"
+        "           margin-top:12px; padding:10px; }"
+        "QGroupBox::title { subcontrol-origin:margin; left:10px; color:#1E88E5; }"
+        "QPushButton { background:#1E88E5; color:white; border:none;"
+        "             border-radius:4px; padding:6px 12px; }"
+        "QPushButton:hover { background:#1565C0; }"
+        "QPushButton:disabled { background:#B0BEC5; color:#ECEFF1; }"
+        "QPushButton#danger { background:#C62828; }"
+        "QPushButton#module { font-size:16pt; font-weight:bold; border-radius:10px; min-height:110px; }"
+        "QLineEdit, QComboBox, QDateEdit { background:white; border:1px solid #B0BEC5;"
+        "                                  border-radius:4px; padding:6px; }"
+        "QHeaderView::section { background:#1E88E5; color:white; padding:4px; border:none; }"
+        "QTableView { background:white; alternate-background-color:#F5F7FA; }");
 }
 
 void smartweather::erreur(const QString &msg)
@@ -248,7 +479,6 @@ void smartweather::supprimer()
 
 void smartweather::charger()
 {
-
     static const char *colRecherche[] = {"nom", "poste", "structure", "gouvernorat"};
     static const char *colTri[] = {"nom", "poste", "date_recrutement", "structure"};
 

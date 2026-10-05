@@ -8,7 +8,9 @@ class QComboBox;
 class QDateEdit;
 class QTableView;
 class QSqlQueryModel;
-
+class QStackedWidget;
+class QLabel;
+class QPushButton;
 
 class smartweather : public QWidget
 {
@@ -17,6 +19,12 @@ public:
     explicit smartweather(QWidget *parent = nullptr);
 
 private slots:
+    void seConnecter();
+    void deconnecter();
+    void ouvrirEmployes();
+    void retourAccueil();
+    void moduleIndisponible();
+
     void ajouter();
     void modifier();
     void supprimer();
@@ -28,19 +36,29 @@ private slots:
     void viderFormulaire();
 
 private:
-    void buildUi();
     bool initDb();
+    void initUtilisateurs();
+    static QString hasher(const QString &motDePasse, const QString &sel);
+    void appliquerStyle();
+
+    QWidget *buildLoginPage();
+    QWidget *buildAccueilPage();
+    QWidget *buildEmployesPage();
+
     bool formulaireValide();
     void erreur(const QString &msg);
 
-    // Formulaire
+    QStackedWidget *m_stack;
+    QLineEdit *m_loginUser, *m_loginPass;
+    QLabel *m_loginErreur, *m_bienvenue;
+    QPushButton *m_btnEmployes;
+    QString m_user, m_role;
+
     QLineEdit *m_nom, *m_prenom, *m_email, *m_gouvernorat;
     QComboBox *m_poste, *m_structure, *m_statut, *m_horaire;
     QDateEdit *m_date;
-    // Recherche / tri
     QComboBox *m_critere, *m_tri;
     QLineEdit *m_recherche;
-    // Tableau
     QTableView *m_table;
     QSqlQueryModel *m_model;
     int m_idCourant = -1;

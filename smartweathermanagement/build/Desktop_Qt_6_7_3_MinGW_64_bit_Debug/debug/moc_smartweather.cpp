@@ -36,8 +36,13 @@ namespace {
 struct qt_meta_stringdata_CLASSsmartweatherENDCLASS_t {};
 constexpr auto qt_meta_stringdata_CLASSsmartweatherENDCLASS = QtMocHelpers::stringData(
     "smartweather",
-    "ajouter",
+    "seConnecter",
     "",
+    "deconnecter",
+    "ouvrirEmployes",
+    "retourAccueil",
+    "moduleIndisponible",
+    "ajouter",
     "modifier",
     "supprimer",
     "charger",
@@ -60,7 +65,7 @@ Q_CONSTINIT static const uint qt_meta_data_CLASSsmartweatherENDCLASS[] = {
       12,       // revision
        0,       // classname
        0,    0, // classinfo
-       9,   14, // methods
+      14,   14, // methods
        0,    0, // properties
        0,    0, // enums/sets
        0,    0, // constructors
@@ -68,15 +73,20 @@ Q_CONSTINIT static const uint qt_meta_data_CLASSsmartweatherENDCLASS[] = {
        0,       // signalCount
 
  // slots: name, argc, parameters, tag, flags, initial metatype offsets
-       1,    0,   68,    2, 0x08,    1 /* Private */,
-       3,    0,   69,    2, 0x08,    2 /* Private */,
-       4,    0,   70,    2, 0x08,    3 /* Private */,
-       5,    0,   71,    2, 0x08,    4 /* Private */,
-       6,    0,   72,    2, 0x08,    5 /* Private */,
-       7,    0,   73,    2, 0x08,    6 /* Private */,
-       8,    0,   74,    2, 0x08,    7 /* Private */,
-       9,    1,   75,    2, 0x08,    8 /* Private */,
-      12,    0,   78,    2, 0x08,   10 /* Private */,
+       1,    0,   98,    2, 0x08,    1 /* Private */,
+       3,    0,   99,    2, 0x08,    2 /* Private */,
+       4,    0,  100,    2, 0x08,    3 /* Private */,
+       5,    0,  101,    2, 0x08,    4 /* Private */,
+       6,    0,  102,    2, 0x08,    5 /* Private */,
+       7,    0,  103,    2, 0x08,    6 /* Private */,
+       8,    0,  104,    2, 0x08,    7 /* Private */,
+       9,    0,  105,    2, 0x08,    8 /* Private */,
+      10,    0,  106,    2, 0x08,    9 /* Private */,
+      11,    0,  107,    2, 0x08,   10 /* Private */,
+      12,    0,  108,    2, 0x08,   11 /* Private */,
+      13,    0,  109,    2, 0x08,   12 /* Private */,
+      14,    1,  110,    2, 0x08,   13 /* Private */,
+      17,    0,  113,    2, 0x08,   15 /* Private */,
 
  // slots: parameters
     QMetaType::Void,
@@ -86,7 +96,12 @@ Q_CONSTINIT static const uint qt_meta_data_CLASSsmartweatherENDCLASS[] = {
     QMetaType::Void,
     QMetaType::Void,
     QMetaType::Void,
-    QMetaType::Void, 0x80000000 | 10,   11,
+    QMetaType::Void,
+    QMetaType::Void,
+    QMetaType::Void,
+    QMetaType::Void,
+    QMetaType::Void,
+    QMetaType::Void, 0x80000000 | 15,   16,
     QMetaType::Void,
 
        0        // eod
@@ -101,6 +116,16 @@ Q_CONSTINIT const QMetaObject smartweather::staticMetaObject = { {
     qt_incomplete_metaTypeArray<qt_meta_stringdata_CLASSsmartweatherENDCLASS_t,
         // Q_OBJECT / Q_GADGET
         QtPrivate::TypeAndForceComplete<smartweather, std::true_type>,
+        // method 'seConnecter'
+        QtPrivate::TypeAndForceComplete<void, std::false_type>,
+        // method 'deconnecter'
+        QtPrivate::TypeAndForceComplete<void, std::false_type>,
+        // method 'ouvrirEmployes'
+        QtPrivate::TypeAndForceComplete<void, std::false_type>,
+        // method 'retourAccueil'
+        QtPrivate::TypeAndForceComplete<void, std::false_type>,
+        // method 'moduleIndisponible'
+        QtPrivate::TypeAndForceComplete<void, std::false_type>,
         // method 'ajouter'
         QtPrivate::TypeAndForceComplete<void, std::false_type>,
         // method 'modifier'
@@ -130,15 +155,20 @@ void smartweather::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _id
         auto *_t = static_cast<smartweather *>(_o);
         (void)_t;
         switch (_id) {
-        case 0: _t->ajouter(); break;
-        case 1: _t->modifier(); break;
-        case 2: _t->supprimer(); break;
-        case 3: _t->charger(); break;
-        case 4: _t->exporterCsv(); break;
-        case 5: _t->exporterPdf(); break;
-        case 6: _t->afficherStats(); break;
-        case 7: _t->remplirFormulaire((*reinterpret_cast< std::add_pointer_t<QModelIndex>>(_a[1]))); break;
-        case 8: _t->viderFormulaire(); break;
+        case 0: _t->seConnecter(); break;
+        case 1: _t->deconnecter(); break;
+        case 2: _t->ouvrirEmployes(); break;
+        case 3: _t->retourAccueil(); break;
+        case 4: _t->moduleIndisponible(); break;
+        case 5: _t->ajouter(); break;
+        case 6: _t->modifier(); break;
+        case 7: _t->supprimer(); break;
+        case 8: _t->charger(); break;
+        case 9: _t->exporterCsv(); break;
+        case 10: _t->exporterPdf(); break;
+        case 11: _t->afficherStats(); break;
+        case 12: _t->remplirFormulaire((*reinterpret_cast< std::add_pointer_t<QModelIndex>>(_a[1]))); break;
+        case 13: _t->viderFormulaire(); break;
         default: ;
         }
     }
@@ -163,13 +193,13 @@ int smartweather::qt_metacall(QMetaObject::Call _c, int _id, void **_a)
     if (_id < 0)
         return _id;
     if (_c == QMetaObject::InvokeMetaMethod) {
-        if (_id < 9)
+        if (_id < 14)
             qt_static_metacall(this, _c, _id, _a);
-        _id -= 9;
+        _id -= 14;
     } else if (_c == QMetaObject::RegisterMethodArgumentMetaType) {
-        if (_id < 9)
+        if (_id < 14)
             *reinterpret_cast<QMetaType *>(_a[0]) = QMetaType();
-        _id -= 9;
+        _id -= 14;
     }
     return _id;
 }
